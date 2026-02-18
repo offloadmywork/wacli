@@ -6,18 +6,33 @@
   "bin": {
     "wacli": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsup src/cli.ts --format esm --dts",
+    "build": "tsup src/cli.ts src/client.ts src/store.ts --format esm --dts --clean",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["whatsapp", "cli", "messaging", "baileys"],
-  "author": "Offload",
+  "keywords": [
+    "whatsapp",
+    "cli",
+    "messaging",
+    "baileys",
+    "chat",
+    "messages"
+  ],
+  "author": "Offload <nev@offloadmy.work>",
   "license": "MIT",
+  "homepage": "https://github.com/offloadmywork/wacli#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/offloadmywork/wacli.git"
+    "url": "git+https://github.com/offloadmywork/wacli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/offloadmywork/wacli/issues"
   },
   "engines": {
     "node": ">=18"
