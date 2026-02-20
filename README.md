@@ -35,6 +35,12 @@ wacli search "meeting"
 ### `wacli link`
 Link wacli to your WhatsApp account by scanning a QR code.
 
+Options:
+- `--serve` - Serve QR code via web tunnel for remote scanning
+- `--port <port>` - Local port for QR server (default: 9876)
+
+When using `--serve`, wacli starts a local web server and creates a temporary tunnel via Cloudflare, giving you a public URL to access the QR code from any device.
+
 ### `wacli unlink`
 Remove the WhatsApp link and clear all stored data.
 
@@ -87,6 +93,9 @@ Options:
 ## Examples
 
 ```bash
+# Link via web tunnel (for remote/headless machines)
+wacli link --serve
+
 # Get messages from the last hour
 wacli messages --since 1h
 
