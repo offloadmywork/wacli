@@ -2,6 +2,10 @@
 import { Command } from "commander";
 import { client } from "./client.js";
 import { formatDistanceToNow, subHours, subDays, subWeeks, subMonths, parseISO, format } from "date-fns";
+import { createServer } from "http";
+import { spawn } from "child_process";
+import QRCode from "qrcode";
+import qrTerminal from "qrcode-terminal";
 
 const program = new Command();
 
@@ -14,7 +18,9 @@ program
 program
   .command("link")
   .description("Link wacli to your WhatsApp account (scan QR code)")
-  .action(async () => {
+  .option("--serve", "Serve QR code via web tunnel for remote scanning")
+  .option("--port <port>", "Local port for QR server", "9876")
+  .action(async (options) => {
     try {
       if (client.isLinked()) {
         console.log("⚠️  Already linked. Use 'wacli unlink' first to re-link.");
@@ -22,10 +28,95 @@ program
       }
 
       console.log("🔗 Starting WhatsApp link process...\n");
-      await client.connect({ showQr: true });
-      console.log("✅ Successfully linked to WhatsApp!");
-      await client.disconnect();
-      process.exit(0);
+
+      if (options.serve) {
+        // Serve QR via HTTP + tunnel
+        let currentQr = "";
+        const port = parseInt(options.port);
+
+        const server = createServer(async (req, res) => {
+          if (req.url === "/" || req.url === "/qr") {
+            if (!currentQr) {
+              res.writeHead(200, { "Content-Type": "text/html" });
+              res.end(`
+                <html><head><meta http-equiv="refresh" content="2"></head>
+                <body style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:system-ui;">
+                  <div>⏳ Waiting for QR code...</div>
+                </body></html>
+              `);
+              return;
+            }
+            const qrPng = await QRCode.toDataURL(currentQr, { width: 400 });
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(`
+              <html><head><meta http-equiv="refresh" content="5"><title>wacli - WhatsApp Link</title></head>
+              <body style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100vh;font-family:system-ui;background:#f5f5f5;">
+                <h2>📱 Scan with WhatsApp</h2>
+                <img src="${qrPng}" style="border:8px solid white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);"/>
+                <p style="color:#666;margin-top:20px;">WhatsApp → Settings → Linked Devices → Link a Device</p>
+              </body></html>
+            `);
+          } else {
+            res.writeHead(404);
+            res.end("Not found");
+          }
+        });
+
+        server.listen(port, () => {
+          console.log(`📡 QR server running on http://localhost:${port}`);
+          console.log("🚇 Starting tunnel...\n");
+        });
+
+        // Start cloudflared tunnel
+        const tunnel = spawn("npx", ["-y", "cloudflared", "tunnel", "--url", `http://localhost:${port}`], {
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+
+        let tunnelUrl = "";
+        const urlPromise = new Promise<string>((resolve) => {
+          const handleOutput = (data: Buffer) => {
+            const line = data.toString();
+            const match = line.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+            if (match && !tunnelUrl) {
+              tunnelUrl = match[0];
+              console.log(`🌐 Tunnel URL: ${tunnelUrl}\n`);
+              console.log("Open this URL on your phone to scan the QR code.\n");
+              resolve(tunnelUrl);
+            }
+          };
+          tunnel.stdout.on("data", handleOutput);
+          tunnel.stderr.on("data", handleOutput);
+        });
+
+        // Wait for tunnel URL
+        await Promise.race([
+          urlPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Tunnel timeout")), 30000)),
+        ]);
+
+        // Connect with QR callback
+        await client.connect({
+          showQr: true,
+          onQr: (qr) => {
+            currentQr = qr;
+            console.log("📱 New QR code generated - refresh the page to see it.");
+            // Also show in terminal
+            qrTerminal.generate(qr, { small: true });
+          },
+        });
+
+        console.log("\n✅ Successfully linked to WhatsApp!");
+        tunnel.kill();
+        server.close();
+        await client.disconnect();
+        process.exit(0);
+      } else {
+        // Standard terminal QR
+        await client.connect({ showQr: true });
+        console.log("✅ Successfully linked to WhatsApp!");
+        await client.disconnect();
+        process.exit(0);
+      }
     } catch (err) {
       console.error("❌ Link failed:", (err as Error).message);
       process.exit(1);

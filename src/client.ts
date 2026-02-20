@@ -52,7 +52,7 @@ export class WacliClient {
     return fs.existsSync(credsPath);
   }
 
-  async connect(options?: { showQr?: boolean; syncHistory?: boolean }): Promise<void> {
+  async connect(options?: { showQr?: boolean; syncHistory?: boolean; onQr?: (qr: string) => void }): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
     const { version } = await fetchLatestBaileysVersion();
 
@@ -161,9 +161,13 @@ export class WacliClient {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr && options?.showQr) {
-          console.log("\n📱 Scan this QR code with WhatsApp:\n");
-          qrcode.generate(qr, { small: true });
-          console.log("\nOpen WhatsApp → Settings → Linked Devices → Link a Device\n");
+          if (options.onQr) {
+            options.onQr(qr);
+          } else {
+            console.log("\n📱 Scan this QR code with WhatsApp:\n");
+            qrcode.generate(qr, { small: true });
+            console.log("\nOpen WhatsApp → Settings → Linked Devices → Link a Device\n");
+          }
         }
 
         if (connection === "close") {
