@@ -154,8 +154,8 @@ export class WacliClient {
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error("Connection timeout (60s)"));
-      }, 60000);
+        reject(new Error("Connection timeout (5m)"));
+      }, 300000);
 
       this.sock!.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
