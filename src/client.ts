@@ -25,7 +25,7 @@ import {
   MessageFilter,
 } from "./store.js";
 
-const logger = pino({ level: "silent" });
+const logger = pino({ level: "debug" });
 
 function getAuthDir(): string {
   const configDir = path.join(os.homedir(), ".config", "wacli");
@@ -159,6 +159,9 @@ export class WacliClient {
 
       this.sock!.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
+        
+        // Log all connection updates for debugging
+        console.log("[connection.update]", JSON.stringify({ connection, hasQr: !!qr, lastDisconnect: lastDisconnect?.error?.message }, null, 2));
 
         if (qr && options?.showQr) {
           if (options.onQr) {
@@ -172,9 +175,17 @@ export class WacliClient {
 
         if (connection === "close") {
           const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+          const errorMsg = (lastDisconnect?.error as Error)?.message || "";
+          
           if (statusCode === DisconnectReason.loggedOut) {
             clearTimeout(timeout);
             reject(new Error("Logged out. Run 'wacli link' to re-authenticate."));
+          } else if (errorMsg.includes("QR refs")) {
+            clearTimeout(timeout);
+            reject(new Error("QR code expired after too many attempts. Please try again and scan faster."));
+          } else {
+            clearTimeout(timeout);
+            reject(new Error(`Connection closed: ${errorMsg || "unknown reason"}`));
           }
         }
 
