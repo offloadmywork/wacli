@@ -25,7 +25,7 @@ import {
   MessageFilter,
 } from "./store.js";
 
-const logger = pino({ level: "debug" });
+const logger = pino({ level: "silent" });
 
 function getAuthDir(): string {
   const configDir = path.join(os.homedir(), ".config", "wacli");
@@ -159,9 +159,6 @@ export class WacliClient {
 
       this.sock!.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
-        // Log all connection updates for debugging
-        console.log("[connection.update]", JSON.stringify({ connection, hasQr: !!qr, lastDisconnect: lastDisconnect?.error?.message }, null, 2));
 
         if (qr && options?.showQr) {
           if (options.onQr) {
