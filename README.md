@@ -25,6 +25,7 @@ wacli sync                            # Fetch message history
 wacli chats [--groups|--dms] [--json] # List chats
 wacli messages [options]              # Read messages
 wacli search "query" [options]        # Search all chats
+wacli download <messageId> [-o path]  # Download media from message
 wacli unlink                          # Remove link
 ```
 
@@ -39,6 +40,8 @@ wacli unlink                          # Remove link
 --groups          # Groups only
 --dms             # DMs only
 --limit <n>       # Max results (default: 100)
+--include-media   # Download media attachments
+--media-dir <dir> # Where to save media (default: ./media)
 --json            # JSON output
 ```
 
@@ -48,6 +51,8 @@ wacli unlink                          # Remove link
 wacli messages --since 3h
 wacli messages --sender "Mom" --since 7d
 wacli messages --groups --since 1h --json
+wacli messages --since 1h --include-media    # Download all media
+wacli download ABC123DEF -o ./downloads/     # Download specific media
 wacli search "meeting" --since 7d
 ```
 

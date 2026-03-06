@@ -39,6 +39,12 @@ wacli chats [--groups] [--dms] [--json]
 # Read messages
 wacli messages [--since 3h] [--chat <id>] [--sender <name>] [--search <text>] [--json]
 
+# Read messages with media download
+wacli messages --since 1h --include-media [--media-dir ./media]
+
+# Download specific media
+wacli download <messageId> [-o ./path/]
+
 # Search across all chats
 wacli search "query" [--since 30d] [--limit 50]
 ```
@@ -55,6 +61,12 @@ wacli messages --since 3h
 
 # Messages from a specific person
 wacli messages --sender "John" --since 24h
+
+# Download all media (voice messages, images, etc.)
+wacli messages --since 1h --include-media --media-dir ./downloads
+
+# Download specific media by message ID
+wacli download 3EB0ABC123DEF -o ./voice.ogg
 
 # Search for keyword
 wacli search "meeting" --since 7d
