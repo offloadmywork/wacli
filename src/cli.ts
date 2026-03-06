@@ -316,6 +316,8 @@ program
   .option("--limit <n>", "Maximum messages to return", "100")
   .option("--json", "Output as JSON")
   .option("--no-connect", "Use cached messages only (no WhatsApp connection)")
+  .option("--include-media", "Download media files for messages with attachments")
+  .option("--media-dir <path>", "Directory to save media files", "./media")
   .action(async (options) => {
     try {
       if (!client.isLinked()) {
@@ -344,12 +346,36 @@ program
         limit: parseInt(options.limit),
       });
 
+      // Download media if requested
+      const mediaResults: Record<string, string> = {};
+      if (options.includeMedia) {
+        const mediaMessages = messages.filter(m => m.hasMedia && m.media);
+        if (mediaMessages.length > 0) {
+          console.log(`📥 Downloading ${mediaMessages.length} media file(s)...`);
+          for (const msg of mediaMessages) {
+            try {
+              const outputPath = await client.downloadMedia(msg.id, options.mediaDir);
+              mediaResults[msg.id] = outputPath;
+              console.log(`   ✓ ${msg.mediaType}: ${outputPath}`);
+            } catch (err) {
+              console.log(`   ✗ ${msg.id}: ${(err as Error).message}`);
+            }
+          }
+          console.log();
+        }
+      }
+
       if (options.connect !== false) {
         await client.disconnect();
       }
 
       if (options.json) {
-        console.log(JSON.stringify(messages, null, 2));
+        // Include media paths in JSON output
+        const output = messages.map(m => ({
+          ...m,
+          mediaPath: mediaResults[m.id] || undefined,
+        }));
+        console.log(JSON.stringify(output, null, 2));
       } else {
         if (messages.length === 0) {
           console.log(`\n📭 No messages found matching your filters.`);
@@ -375,6 +401,9 @@ program
           console.log(`  ${msg.body.slice(0, 200)}${msg.body.length > 200 ? "..." : ""}`);
           if (msg.quotedBody) {
             console.log(`  ↳ Reply to: "${msg.quotedBody.slice(0, 50)}..."`);
+          }
+          if (mediaResults[msg.id]) {
+            console.log(`  📎 Media: ${mediaResults[msg.id]}`);
           }
           console.log();
         }
@@ -438,6 +467,100 @@ program
       }
 
       process.exit(0);
+    } catch (err) {
+      console.error("❌ Error:", (err as Error).message);
+      process.exit(1);
+    }
+  });
+
+// Download command - download media from a message
+program
+  .command("download <messageId>")
+  .description("Download media from a message")
+  .option("-o, --output <path>", "Output path (file or directory)", "./")
+  .option("--json", "Output result as JSON")
+  .action(async (messageId, options) => {
+    try {
+      if (!client.isLinked()) {
+        console.log("❌ Not linked. Run 'wacli link' first.");
+        process.exit(1);
+      }
+
+      // Check if message exists in store first
+      const msg = client.getMessageById(messageId);
+      if (!msg) {
+        console.error(`❌ Message not found: ${messageId}`);
+        console.log("Tip: Run 'wacli sync' to fetch message history.");
+        process.exit(1);
+      }
+
+      if (!msg.hasMedia) {
+        console.error(`❌ Message has no media to download.`);
+        process.exit(1);
+      }
+
+      console.log(`📥 Downloading ${msg.mediaType} from message ${messageId}...`);
+      console.log(`   From: ${msg.senderName || msg.sender}`);
+      console.log(`   Chat: ${msg.chatId.split("@")[0]}`);
+      
+      // Connect to WhatsApp for download
+      console.log("🔄 Connecting...");
+      await client.connect();
+      
+      const outputPath = await client.downloadMedia(messageId, options.output);
+      
+      await client.disconnect();
+
+      if (options.json) {
+        console.log(JSON.stringify({ success: true, path: outputPath, messageId, mediaType: msg.mediaType }));
+      } else {
+        console.log(`\n✅ Downloaded to: ${outputPath}`);
+      }
+
+      process.exit(0);
+    } catch (err) {
+      console.error("❌ Download failed:", (err as Error).message);
+      process.exit(1);
+    }
+  });
+
+// Listen command - stay connected and receive real-time messages
+program
+  .command("listen")
+  .description("Stay connected and receive real-time messages")
+  .option("--quiet", "Don't print incoming messages, just save them")
+  .action(async (options) => {
+    try {
+      if (!client.isLinked()) {
+        console.log("❌ Not linked. Run 'wacli link' first.");
+        process.exit(1);
+      }
+
+      console.log("🔄 Connecting to WhatsApp...");
+      await client.connect({ syncHistory: true });
+      console.log("✅ Connected! Listening for messages...");
+      console.log("   Press Ctrl+C to stop.\n");
+
+      // Set up message listener
+      client.onMessage((msg) => {
+        if (!options.quiet) {
+          const time = format(new Date(msg.timestamp), "HH:mm:ss");
+          const sender = msg.senderName || msg.sender.split("@")[0];
+          const chatName = msg.chatId.split("@")[0];
+          const fromMe = msg.isFromMe ? " (you)" : "";
+          console.log(`[${time}] ${chatName} | ${sender}${fromMe}: ${msg.body.slice(0, 100)}${msg.body.length > 100 ? "..." : ""}`);
+        }
+      });
+
+      // Keep alive
+      process.on("SIGINT", async () => {
+        console.log("\n\n👋 Disconnecting...");
+        await client.disconnect();
+        process.exit(0);
+      });
+
+      // Prevent exit
+      await new Promise(() => {});
     } catch (err) {
       console.error("❌ Error:", (err as Error).message);
       process.exit(1);

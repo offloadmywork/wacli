@@ -3,6 +3,15 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
+export interface MediaInfo {
+  mediaKey?: string;
+  directPath?: string;
+  url?: string;
+  mimetype?: string;
+  fileLength?: number;
+  fileName?: string;
+}
+
 export interface StoredMessage {
   id: string;
   chatId: string;
@@ -15,6 +24,7 @@ export interface StoredMessage {
   quotedBody?: string;
   hasMedia: boolean;
   mediaType?: string;
+  media?: MediaInfo;
 }
 
 export interface MessageStore {
@@ -94,6 +104,26 @@ export function getMediaType(msg: WAMessage): string | undefined {
   return undefined;
 }
 
+export function extractMediaInfo(msg: WAMessage): MediaInfo | undefined {
+  const m = msg.message;
+  if (!m) return undefined;
+  
+  const mediaMsg = m.imageMessage || m.videoMessage || m.audioMessage || 
+                   m.documentMessage || m.stickerMessage;
+  
+  if (!mediaMsg) return undefined;
+  
+  return {
+    mediaKey: mediaMsg.mediaKey ? Buffer.from(mediaMsg.mediaKey).toString("base64") : undefined,
+    directPath: mediaMsg.directPath || undefined,
+    url: mediaMsg.url || undefined,
+    mimetype: mediaMsg.mimetype || undefined,
+    fileLength: typeof mediaMsg.fileLength === 'number' ? mediaMsg.fileLength : 
+                (mediaMsg.fileLength ? Number(mediaMsg.fileLength) : undefined),
+    fileName: (m.documentMessage as any)?.fileName || undefined,
+  };
+}
+
 export function processMessage(
   msg: WAMessage,
   store: MessageStore
@@ -121,6 +151,7 @@ export function processMessage(
     isFromMe: msg.key.fromMe || false,
     hasMedia: !!getMediaType(msg),
     mediaType: getMediaType(msg),
+    media: extractMediaInfo(msg),
   };
   
   // Handle quoted messages

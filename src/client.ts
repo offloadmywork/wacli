@@ -7,6 +7,7 @@ import makeWASocket, {
   GroupMetadata,
   WAMessage,
   isJidGroup,
+  downloadContentFromMessage,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import pino from "pino";
@@ -17,6 +18,7 @@ import * as os from "os";
 import {
   MessageStore,
   StoredMessage,
+  MediaInfo,
   loadStore,
   saveStore,
   processMessage,
@@ -24,6 +26,8 @@ import {
   filterMessages,
   MessageFilter,
 } from "./store.js";
+import { Readable } from "stream";
+import { createWriteStream } from "fs";
 
 const logger = pino({ level: "silent" });
 
@@ -41,10 +45,15 @@ export class WacliClient {
   private authDir: string;
   private store: MessageStore;
   private syncComplete = false;
+  private messageListeners: ((msg: StoredMessage) => void)[] = [];
 
   constructor() {
     this.authDir = getAuthDir();
     this.store = loadStore();
+  }
+
+  onMessage(listener: (msg: StoredMessage) => void): void {
+    this.messageListeners.push(listener);
   }
 
   isLinked(): boolean {
@@ -79,6 +88,14 @@ export class WacliClient {
         const stored = processMessage(msg, this.store);
         if (stored) {
           addMessage(this.store, stored);
+          // Notify listeners
+          for (const listener of this.messageListeners) {
+            try {
+              listener(stored);
+            } catch (e) {
+              // Ignore listener errors
+            }
+          }
         }
       }
       // Save periodically
@@ -288,6 +305,80 @@ export class WacliClient {
   getSocket(): WASocket {
     if (!this.sock) throw new Error("Not connected");
     return this.sock;
+  }
+
+  getMessageById(messageId: string): StoredMessage | undefined {
+    for (const messages of this.store.messages.values()) {
+      const msg = messages.find(m => m.id === messageId);
+      if (msg) return msg;
+    }
+    return undefined;
+  }
+
+  async downloadMedia(messageId: string, outputPath: string): Promise<string> {
+    const msg = this.getMessageById(messageId);
+    if (!msg) {
+      throw new Error(`Message not found: ${messageId}`);
+    }
+    if (!msg.hasMedia || !msg.media) {
+      throw new Error(`Message has no downloadable media`);
+    }
+
+    const { mediaKey, directPath, url, mimetype } = msg.media;
+    if (!mediaKey || !directPath) {
+      throw new Error(`Media keys not available for this message`);
+    }
+
+    // Determine media type for Baileys
+    const mediaType = msg.mediaType as "image" | "video" | "audio" | "document" | "sticker";
+    
+    // Download the media
+    const stream = await downloadContentFromMessage(
+      {
+        mediaKey: Buffer.from(mediaKey, "base64"),
+        directPath,
+        url,
+      },
+      mediaType
+    );
+
+    // Determine file extension
+    let ext = ".bin";
+    if (mimetype) {
+      const parts = mimetype.split("/");
+      if (parts[1]) {
+        ext = "." + parts[1].split(";")[0].replace("ogg", "ogg").replace("webp", "webp");
+        // Fix common extensions
+        if (ext === ".mpeg") ext = ".mp3";
+        if (ext === ".mp4") ext = ".mp4";
+        if (ext === ".jpeg") ext = ".jpg";
+      }
+    }
+    // Voice messages are typically ogg
+    if (mediaType === "audio" && mimetype?.includes("ogg")) {
+      ext = ".ogg";
+    }
+
+    // If outputPath is a directory, add filename
+    let finalPath = outputPath;
+    if (outputPath.endsWith("/") || !outputPath.includes(".")) {
+      finalPath = path.join(outputPath, `${messageId}${ext}`);
+    }
+
+    // Ensure directory exists
+    const dir = path.dirname(finalPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Write to file
+    const writeStream = createWriteStream(finalPath);
+    for await (const chunk of stream) {
+      writeStream.write(chunk);
+    }
+    writeStream.end();
+
+    return finalPath;
   }
 }
 
