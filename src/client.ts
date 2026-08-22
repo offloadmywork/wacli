@@ -31,6 +31,24 @@ import { createWriteStream } from "fs";
 
 const logger = pino({ level: "silent" });
 
+function installReadOnlySocketGuard(sock: WASocket): void {
+  const blockedMethods = [
+    "sendMessage",
+    "relayMessage",
+    "readMessages",
+    "sendPresenceUpdate",
+    "sendReceipt",
+  ];
+
+  for (const method of blockedMethods) {
+    if (method in sock) {
+      (sock as unknown as Record<string, unknown>)[method] = async () => {
+        throw new Error(`wacli is read-only; ${method} is disabled.`);
+      };
+    }
+  }
+}
+
 function getAuthDir(): string {
   const configDir = path.join(os.homedir(), ".config", "wacli");
   if (!fs.existsSync(configDir)) {
@@ -83,6 +101,7 @@ export class WacliClient {
         return { conversation: "" };
       },
     });
+    installReadOnlySocketGuard(this.sock);
 
     // Handle incoming messages
     this.sock.ev.on("messages.upsert", async ({ messages, type }) => {
@@ -304,9 +323,8 @@ export class WacliClient {
     return this.store.chats.size;
   }
 
-  getSocket(): WASocket {
-    if (!this.sock) throw new Error("Not connected");
-    return this.sock;
+  getSocket(): never {
+    throw new Error("Raw WhatsApp socket access is disabled; wacli is read-only.");
   }
 
   getMessageById(messageId: string): StoredMessage | undefined {
