@@ -70,6 +70,8 @@ export class WacliClient {
       auth: state,
       logger,
       printQRInTerminal: false,
+      // Keep the linked client offline so WhatsApp continues to push to the phone.
+      markOnlineOnConnect: false,
       syncFullHistory: options?.syncHistory ?? true,
       getMessage: async (key) => {
         // Look up message from store
