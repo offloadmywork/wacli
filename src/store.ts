@@ -46,11 +46,16 @@ export function loadStore(): MessageStore {
   if (fs.existsSync(storePath)) {
     try {
       const data = JSON.parse(fs.readFileSync(storePath, "utf-8"));
-      return {
+      const store: MessageStore = {
         messages: new Map(Object.entries(data.messages || {}).map(([k, v]) => [k, v as StoredMessage[]])),
         chats: new Map(Object.entries(data.chats || {})),
         contacts: new Map(Object.entries(data.contacts || {})),
       };
+      // Older caches may contain DM messages without a history chat entry.
+      for (const [chatId, messages] of store.messages) {
+        registerCachedDm(store, chatId, messages);
+      }
+      return store;
     } catch {
       // Corrupted store, start fresh
     }
@@ -169,9 +174,21 @@ export function processMessage(
   return stored;
 }
 
+function registerCachedDm(store: MessageStore, chatId: string, messages: StoredMessage[]): void {
+  if (store.chats.has(chatId) || messages.length === 0 ||
+      (!chatId.endsWith("@s.whatsapp.net") && !chatId.endsWith("@lid"))) return;
+  store.chats.set(chatId, {
+    name: store.contacts.get(chatId.split("@")[0]) || chatId,
+    isGroup: false,
+    lastMessageTime: messages.reduce((latest, msg) => Math.max(latest, msg.timestamp), 0),
+  });
+}
+
 export function addMessage(store: MessageStore, msg: StoredMessage): void {
   const existing = store.messages.get(msg.chatId) || [];
   
+  registerCachedDm(store, msg.chatId, existing.length ? existing : [msg]);
+
   // Avoid duplicates
   if (existing.some(m => m.id === msg.id)) return;
   
@@ -195,6 +212,7 @@ export function addMessage(store: MessageStore, msg: StoredMessage): void {
 }
 
 export interface MessageFilter {
+  chat?: string; // CLI ID-or-name selector; exact IDs take precedence
   chatId?: string;
   chatName?: string;
   isGroup?: boolean;
@@ -205,11 +223,46 @@ export interface MessageFilter {
   limit?: number;
 }
 
+export interface ChatChoice { id: string; name: string }
+
+export class AmbiguousChatError extends Error {
+  readonly code = "ambiguous_chat";
+  constructor(readonly candidates: ChatChoice[]) {
+    super("Multiple chats match. Use a more specific selector or a full chat ID.");
+  }
+}
+
+const normalizeName = (value: string) => value.normalize("NFC").toLowerCase().normalize("NFC").trim();
+
+export function resolveChatSelector(store: MessageStore, selector: string, isGroup?: boolean): string | undefined {
+  if (!normalizeName(selector)) return undefined;
+  const ids = [...new Set([...store.chats.keys(), ...store.messages.keys()])];
+  const hasChat = (id: string) => ids.includes(id);
+  // An explicit ID selects only that identity, even when names overlap.
+  const exactId = hasChat(selector) ? selector :
+    !selector.includes("@") && hasChat(`${selector}@g.us`) ? `${selector}@g.us` : undefined;
+  if (exactId) return exactId;
+  const query = normalizeName(selector);
+  const candidates = ids.filter(id => {
+    if (isGroup !== undefined && id.endsWith("@g.us") !== isGroup) return false;
+    const name = store.chats.get(id)?.name;
+    const contact = id.endsWith("@g.us") ? undefined : store.contacts.get(id.split("@")[0]);
+    return id.includes(selector) || (name !== undefined && normalizeName(name).includes(query)) ||
+      (contact !== undefined && normalizeName(contact).includes(query));
+  }).sort().map(id => ({id, name: store.chats.get(id)?.name ||
+    (!id.endsWith("@g.us") && store.contacts.get(id.split("@")[0])) || id}));
+  if (candidates.length > 1) throw new AmbiguousChatError(candidates);
+  return candidates[0]?.id;
+}
+
 export function filterMessages(
   store: MessageStore,
   filter: MessageFilter
 ): StoredMessage[] {
   let results: StoredMessage[] = [];
+  const selector = filter.chat;
+  const selectedId = selector !== undefined ? resolveChatSelector(store, selector, filter.isGroup) : undefined;
+  if (selector !== undefined && selectedId === undefined) return [];
   
   for (const [chatId, messages] of store.messages) {
     const chat = store.chats.get(chatId);
@@ -220,6 +273,8 @@ export function filterMessages(
       if (filter.isGroup !== isGroup) continue;
     }
     
+    if (selector !== undefined && chatId !== selectedId) continue;
+
     // Filter by chat ID
     if (filter.chatId && !chatId.includes(filter.chatId)) continue;
     

@@ -45,6 +45,8 @@ wacli unlink                          # Remove link
 --json            # JSON output
 ```
 
+`--chat` accepts a full stored chat ID, a bare group ID (the portion before `@g.us`), or a partial chat/contact name. Exact IDs take precedence. Name lookup uses Unicode NFC normalization and case-insensitive matching, including Hebrew text without transliteration or identity inference. A unique match is required; a query matching multiple distinct chats prints quoted candidate names/IDs and exits with code 1 without messages. Use a more specific selector or one candidate's full ID. `--groups`/`--dms` can narrow candidates; time, sender, search and limit filters do not silently disambiguate identities. `--json` emits an `ambiguous_chat` error with candidates instead of a message array. Empty selectors return no messages. Existing raw message output and RPC plaintext transport are unchanged. This does not resolve phone/LID aliases.
+
 ## Examples
 
 ```bash
@@ -55,6 +57,8 @@ wacli messages --since 1h --include-media    # Download all media
 wacli download ABC123DEF -o ./downloads/     # Download specific media
 wacli search "meeting" --since 7d
 ```
+
+Individual chats with cached messages are included in the chat registry even when no history chat entry was received. Older caches recover missing entries in memory when loaded; normal store saves persist them. Existing chat names are preserved, with a cached contact name or chat ID used only for missing entries. This does not fetch additional history or resolve phone/LID aliases.
 
 ## Storage
 

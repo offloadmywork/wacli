@@ -11,6 +11,7 @@
     "README.md"
   ],
   "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
     "build": "tsup src/cli.ts src/client.ts src/store.ts --format esm --dts --clean",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
